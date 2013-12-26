@@ -48,10 +48,12 @@ follower_append(cppa::actor_ptr states, const working_config<LogEntry>& config,
                     auto from = check_logs(config, req.prev_index, req.entries);
                     config.write_logs(req.prev_index, from, req.entries);
                     auto last_index = req.prev_index + req.entries.size();
-                    if(req.committed > working.committed)
+                    if(req.committed > working.committed) {
                         working.committed = min(req.committed, last_index);
-                    // make the state machine actor apply up to the latest log
-                    send(states, atom("apply_to"), working.committed);
+                        // make the state machine actor apply up to the latest
+                        // log
+                        send(states, atom("apply_to"), working.committed);
+                    }
                 }
             }
             send(self->last_sender(), append_response {working.term, succeeds});

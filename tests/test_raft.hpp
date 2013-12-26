@@ -37,7 +37,6 @@ protected:
     void Quit() {
         using namespace cppa;
         send(raft_, atom("EXIT"), exit_reason::user_shutdown);
-//        send(states_, atom("EXIT"), exit_reason::user_shutdown);
         self->quit();
     }
 protected:

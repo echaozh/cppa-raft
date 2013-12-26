@@ -84,8 +84,9 @@ protected:
             });
     }
     template <typename Request, typename Response>
-    void TestActor(Request &&req, Response resp,
-                   function<bool ()> update_states) {
+    void TestActor(Request &&req, Response resp, bool is_leader,
+                   optional<uint64_t> committed,
+                   function<void ()> update_states) {
         spawn([=]() {
                 self->monitor(raft_);
                 self->monitor(states_);
@@ -96,8 +97,15 @@ protected:
                             [=]() {Quit();},
                             on_arg_match >> [=](Response real) {
                                 EXPECT_EQ(resp, real) << "Incorrect response";
-                                if(update_states())
+                                update_states();
+                                if(is_leader)
                                     backup_state_.leader = addr_;
+                                if(committed)
+                                    send(states_, atom("expect"), *committed);
+                                else {
+                                    send(states_, atom("EXIT"),
+                                         exit_reason::user_shutdown);
+                                }
                                 EXPECT_EQ(backup_logs_, logs_)
                                     << "Incorrect logs";
                                 EXPECT_EQ(backup_state_, state_)
@@ -121,11 +129,7 @@ protected:
 
 // append when leader has lesser term
 TEST_F(FollowerTest, AppendLesserTerm) {
-    TestActor(appreq{1}, append_response{100, false},
-              [=]() -> bool {
-                  send(states_, atom("EXIT"), exit_reason::user_shutdown);
-                  return false;
-              });
+    TestActor(appreq{1}, append_response{100, false}, false, {}, []() {});
 };
 
 // append when follower doesn't have matching previous log
@@ -137,16 +141,15 @@ TEST_F(FollowerTest, AppendNoPrevLog) {
                 1000,   // prev_term
                 },
         append_response{1000, false},
-        [=]() -> bool {
+        true, {},
+        [=]() {
             send(states_, atom("EXIT"), exit_reason::user_shutdown);
             backup_state_.working.term = 1000;
-            return true;
         });
 };
 
 // append when follower must discard logs
 TEST_F(FollowerTest, AppendDiscardLogs) {
-    send(states_, atom("expect"), (uint64_t) 2);
     TestActor(
         appreq{
             100,          // term
@@ -156,17 +159,16 @@ TEST_F(FollowerTest, AppendDiscardLogs) {
                 {{1}, {2}, {3}}, // entries
                 },
         append_response{100, true},
-        [=]() -> bool {
+        true, 2,
+        [=]() {
             backup_logs_.resize(4);
             backup_logs_[3] = {3};
             backup_state_.working.committed = 2;
-            return true;
         });
 };
 
 // append when leader is really fast with very late commits
 TEST_F(FollowerTest, AppendFastLeader) {
-    send(states_, atom("expect"), (uint64_t) 9);
     TestActor(
         appreq{
             1000,          // term
@@ -176,7 +178,8 @@ TEST_F(FollowerTest, AppendFastLeader) {
                 {{4}, {5}, {6}}, // entries
                 },
         append_response{1000, true},
-        [=]() -> bool {
+        true, 9,
+        [=]() {
             backup_logs_.push_back({4});
             backup_logs_.push_back({5});
             backup_logs_.push_back({6});
@@ -186,23 +189,12 @@ TEST_F(FollowerTest, AppendFastLeader) {
         });
 };
 
-// // vote when leader term is lesser
+// vote when leader term is lesser
 // TEST_F(FollowerTest, VoteLesserTerm) {
-//     spawn([=]() {
-//             self->monitor(raft_);
-//             self->monitor(states_);
-//             auto test = TestActor(vote_request{10},            // term
-//                                   vote_response{100, false},
-//                                   [=]() -> bool {return false;});
-//             self->monitor(test);
-//             aout << "follower actor: " << raft_ << endl << "state machine: "
-//                  << states_ << endl << "test actor: " << test << endl << flush;
-//             become(
-//                 on(atom("DOWN"), arg_match) >> [=](uint32_t reason) {
-//                     aout << "dead actor: " << self->last_sender() << endl
-//                          << flush;
-//                 });
-//         });
+//     TestActor(vote_request{10},            // term
+//               vote_response{100, false},
+//               false, {},
+//               [=]() -> bool {return false;});
 // }
 
 // test follower reaction without address reporting first
