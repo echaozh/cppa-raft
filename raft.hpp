@@ -43,6 +43,24 @@ static inline bool operator==(append_response lhs, append_response rhs) {
     return lhs.term == rhs.term && lhs.succeeds == rhs.succeeds;
 }
 
+struct vote_request {
+    uint64_t term;
+    uint64_t last_index;
+    uint64_t last_term;
+};
+static inline bool operator==(vote_request lhs, vote_request rhs) {
+    return lhs.term == rhs.term && lhs.last_index == rhs.last_index
+        && lhs.last_term == rhs.last_term;
+}
+
+struct vote_response {
+    uint64_t term;
+    bool vote_granted;
+};
+static inline bool operator==(vote_response lhs, vote_response rhs) {
+    return lhs.term == rhs.term && lhs.vote_granted == rhs.vote_granted;
+}
+
 template <typename LogEntry>
 void announce_protocol() {
     typedef append_request<LogEntry> appreq;
@@ -51,6 +69,10 @@ void announce_protocol() {
                            &appreq::entries);
     cppa::announce<append_response>(&append_response::term,
                               &append_response::succeeds);
+    cppa::announce<vote_request>(&vote_request::term, &vote_request::last_index,
+                                 &vote_request::last_term);
+    cppa::announce<vote_response>(&vote_response::term,
+                                  &vote_response::vote_granted);
 }
 
 template <typename LogEntry>
