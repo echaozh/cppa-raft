@@ -11,8 +11,8 @@
 #include "raft.hpp"
 
 template <typename LogEntry>
-size_t check_logs(const working_config<LogEntry> &config, uint64_t prev_index,
-                  const std::vector<LogEntry> &entries) {
+size_t check_logs(const working_config<LogEntry>& config, uint64_t prev_index,
+                  const std::vector<LogEntry>& entries) {
     auto count = entries.size();
     auto logs = config.read_logs(prev_index + 1, count);
     auto count2 = logs.size();
@@ -26,13 +26,13 @@ size_t check_logs(const working_config<LogEntry> &config, uint64_t prev_index,
 
 template <typename LogEntry>
 static cppa::partial_function
-follower_append(cppa::actor_ptr states, const working_config<LogEntry> &config,
-                follower_state &state) {
+follower_append(cppa::actor_ptr states, const working_config<LogEntry>& config,
+                follower_state& state) {
     using namespace std;
     using namespace cppa;
     return (
-        on_arg_match >> [&, states](const append_request<LogEntry> &req) {
-            auto &working = state.working;
+        on_arg_match >> [&, states](const append_request<LogEntry>& req) {
+            auto& working = state.working;
             auto leader = check_peer(working.peers);
             if(!leader)
                 return;
@@ -60,8 +60,8 @@ follower_append(cppa::actor_ptr states, const working_config<LogEntry> &config,
 
 template <typename LogEntry>
 cppa::partial_function follower(cppa::actor_ptr states,
-                                const working_config<LogEntry> &config,
-                                follower_state &state) {
+                                const working_config<LogEntry>& config,
+                                follower_state& state) {
     return (
         follower_append(states, config, state)
         );

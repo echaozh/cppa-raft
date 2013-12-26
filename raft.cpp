@@ -9,10 +9,10 @@ partial_function who_am_i(address_type addr) {
     return on(atom("who")) >> [&]() {send(self->last_sender(), addr);};
 }
 
-partial_function handle_connections(peer_map &peers) {
+partial_function handle_connections(peer_map& peers) {
     return (
         on(atom("address"), arg_match) >> [&](string host, uint16_t port) {
-            auto &left = peers.left;
+            auto& left = peers.left;
             auto peer = self->last_sender();
             auto it = left.find(make_pair(host, port));
             if(it != left.end()) {
@@ -32,9 +32,9 @@ partial_function handle_connections(peer_map &peers) {
         });
 }
 
-optional<address_type> check_peer(const peer_map &peers) {
+optional<address_type> check_peer(const peer_map& peers) {
     auto peer = self->last_sender();
-    const auto &right = peers.right;
+    const auto& right = peers.right;
     auto it = right.find(peer);
     if(it != right.end())
         return it->second;

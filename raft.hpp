@@ -28,8 +28,8 @@ struct append_request {
     std::vector<LogEntry> entries;
 };
 template <typename LogEntry>
-static inline bool operator==(const append_request<LogEntry> &lhs,
-                              const append_request<LogEntry> &rhs) {
+static inline bool operator==(const append_request<LogEntry>& lhs,
+                              const append_request<LogEntry>& rhs) {
     return lhs.term == rhs.term && lhs.prev_index == rhs.prev_index
         && lhs.prev_term == rhs.prev_term && lhs.committed == rhs.committed
         && lhs.entries.size() == rhs.entries.size();
