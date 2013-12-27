@@ -39,15 +39,17 @@ follower_append(cppa::actor_ptr states, const working_config<LogEntry>& config,
             bool succeeds = false;
             if(req.term >= working.term) {
                 // update leader address
-                state.leader = *leader;
+                state.leader = leader;
                 if(req.term > working.term)
                     working.term = req.term;
                 auto logs = config.read_logs(req.prev_index, 1);
-                if(!logs.empty() && logs[0].term == req.prev_term) {
+                if(!logs.empty() && logs.front().term == req.prev_term) {
                     succeeds = true;
                     auto from = check_logs(config, req.prev_index, req.entries);
                     config.write_logs(req.prev_index, from, req.entries);
                     auto last_index = req.prev_index + req.entries.size();
+                    working.last_index = last_index;
+                    working.last_term = req.entries.back().term;
                     if(req.committed > working.committed) {
                         working.committed = min(req.committed, last_index);
                         // make the state machine actor apply up to the latest
@@ -60,13 +62,39 @@ follower_append(cppa::actor_ptr states, const working_config<LogEntry>& config,
         });
 }
 
+static cppa::partial_function follower_vote(follower_state& state) {
+    using namespace std;
+    using namespace cppa;
+    return (
+        on_arg_match >> [&](vote_request req) {
+            auto& working = state.working;
+            auto peer = check_peer(working.peers);
+            if(!peer)
+                return;
+            bool succeeds = false;
+            if(req.term >= working.term) {
+                if(req.term > working.term)
+                    working.term = req.term;
+                if(state.voted_for && *state.voted_for == *peer
+                   && req.last_index >= working.last_index
+                   && req.last_term >= working.last_term) {
+                    succeeds = true;
+                    state.voted_for = peer;
+                    state.leader = {};
+                }
+            }
+            send(self->last_sender(), vote_response {working.term, succeeds});
+        });
+}
+
 template <typename LogEntry>
 cppa::partial_function follower(cppa::actor_ptr states,
                                 const working_config<LogEntry>& config,
                                 follower_state& state) {
-    return (
-        follower_append(states, config, state)
-        );
+    return (who_am_i(config.address)
+            .or_else(handle_connections(state.working.peers),
+                     follower_append(states, config, state),
+                     follower_vote(state)));
 }
 
 #endif // INCLUDED_CPPA_RAFT_FOLLOWER_HPP

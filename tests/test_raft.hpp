@@ -18,11 +18,14 @@
 
 static inline bool operator==(const working_state& lhs,
                               const working_state& rhs) {
-    return lhs.term == rhs.term;
+    return lhs.term == rhs.term && lhs.committed == rhs.committed
+        && lhs.last_index == rhs.last_index && lhs.last_term == rhs.last_term;
 }
 std::ostream& operator<<(std::ostream& s, const working_state& st) {
     return s << "working_state{" << "term = " << st.term
-             << "; committed = " << st.committed << "}";
+             << "; committed = " << st.committed
+             << "; last_index = " << st.last_index
+             << "; last_term = " << st.last_term << "}";
 }
 std::ostream& operator<<(std::ostream& s, const append_response& resp) {
     return s << "append_response{" << "term = " << resp.term

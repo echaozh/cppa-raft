@@ -17,12 +17,19 @@ static inline bool operator==(test_log_entry lhs, test_log_entry rhs) {
 }
 
 bool operator==(const follower_state& lhs, const follower_state& rhs) {
-    return lhs.working == rhs.working && lhs.leader == rhs.leader;
+    return lhs.working == rhs.working
+        && (lhs.leader == rhs.leader || (!lhs.leader && !rhs.leader))
+        && (lhs.voted_for == rhs.voted_for || (!lhs.voted_for
+                                               && !rhs.voted_for));
 }
 ostream& operator<<(ostream& s, const follower_state& st) {
-    return s << "follower_state{" << "leader = {" << st.leader.first
-             << ", " << st.leader.second
-             << "}; working = " << st.working << "}";
+    s << "follower_state{" << "leader = {";
+    if(st.leader)
+        s << st.leader->first << ", " << st.leader->second;
+    s << "}; voted_for = {";
+    if(st.voted_for)
+        s << st.voted_for->first << ", " << st.voted_for->second;
+    return s << "}; working = " << st.working << "}";
 }
 ostream& operator<<(ostream& s, const test_log_entry& log) {
     return s << "log_entry{" << "term = " << log.term << "}";
@@ -35,6 +42,8 @@ protected:
         announce<test_log_entry>(&test_log_entry::term);
         announce_protocol<test_log_entry>();
         config_ = {
+            // address
+            make_pair("localhost", (uint16_t) 12345),
             // read_logs()
             [=](uint64_t first, uint64_t count) -> vector<test_log_entry> {
                 if(logs_.size() < first)
@@ -63,11 +72,7 @@ protected:
                             on(atom("apply_to"), to) >> [=]() {self->quit();});
                     });
             });
-        raft_ = spawn([=]() {
-                become(
-                    handle_connections(state_.working.peers),
-                    follower(states_, config_, state_));
-            });
+        raft_ = spawn([=]() {become(follower(states_, config_, state_));});
     }
     template<typename... Ts>
     void Become(function<void ()> f, Ts&&... args) {
@@ -86,7 +91,7 @@ protected:
     template <typename Request, typename Response>
     void TestActor(Request &&req, Response resp, bool is_leader,
                    optional<uint64_t> committed,
-                   function<void ()> update_states) {
+                   function<void ()> update_backup) {
         spawn([=]() {
                 self->monitor(raft_);
                 self->monitor(states_);
@@ -94,10 +99,14 @@ protected:
                         ReportAddress();
                         send(raft_, move(req));
                         Become(
-                            [=]() {Quit();},
+                            [=]() {
+                                send(states_, atom("EXIT"),
+                                     exit_reason::user_shutdown);
+                                Quit();
+                            },
                             on_arg_match >> [=](Response real) {
                                 EXPECT_EQ(resp, real) << "Incorrect response";
-                                update_states();
+                                update_backup();
                                 if(is_leader)
                                     backup_state_.leader = addr_;
                                 if(committed)
@@ -130,7 +139,7 @@ protected:
 // append when leader has lesser term
 TEST_F(FollowerTest, AppendLesserTerm) {
     TestActor(appreq{1}, append_response{100, false}, false, {}, []() {});
-};
+}
 
 // append when follower doesn't have matching previous log
 TEST_F(FollowerTest, AppendNoPrevLog) {
@@ -164,8 +173,10 @@ TEST_F(FollowerTest, AppendDiscardLogs) {
             backup_logs_.resize(4);
             backup_logs_[3] = {3};
             backup_state_.working.committed = 2;
+            backup_state_.working.last_index = 3;
+            backup_state_.working.last_term = 3;
         });
-};
+}
 
 // append when leader is really fast with very late commits
 TEST_F(FollowerTest, AppendFastLeader) {
@@ -185,17 +196,39 @@ TEST_F(FollowerTest, AppendFastLeader) {
             backup_logs_.push_back({6});
             backup_state_.working.term = 1000;
             backup_state_.working.committed = 9; // last index is 9
-            return true;
+            backup_state_.working.last_index = 9;
+            backup_state_.working.last_term = 6;
         });
 };
 
-// vote when leader term is lesser
-// TEST_F(FollowerTest, VoteLesserTerm) {
-//     TestActor(vote_request{10},            // term
-//               vote_response{100, false},
-//               false, {},
-//               [=]() -> bool {return false;});
-// }
+// vote when candidate term is lesser
+TEST_F(FollowerTest, VoteLesserTerm) {
+    TestActor(vote_request{10},            // term
+              vote_response{100, false},
+              false, {}, []() {});
+}
+
+// vote when candidate is not who we voted for
+TEST_F(FollowerTest, VoteAfterAnother) {
+    state_.voted_for = {make_pair("localhost", (uint16_t) 54321)};
+    backup_state_ = state_;
+    TestActor(vote_request{1000}, // term
+              vote_response{1000, false},
+              false, {}, [=]() {backup_state_.working.term = 1000;});
+}
+
+// vote when candidate is not up to date
+TEST_F(FollowerTest, VoteForSnail) {
+    state_.voted_for = {make_pair("localhost", (uint16_t) 54321)};
+    backup_state_ = state_;
+    TestActor(vote_request{
+            100,               // term
+                10,             // last_index
+                1,              // last_term
+                },
+        vote_response{100, false},
+        false, {}, []() {});
+}
 
 // test follower reaction without address reporting first
 // TEST_F(FollowerTest, NoAddress) {

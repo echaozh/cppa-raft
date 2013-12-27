@@ -77,6 +77,7 @@ void announce_protocol() {
 
 template <typename LogEntry>
 struct working_config {
+    address_type address;
     std::function<std::vector<LogEntry> (uint64_t first,
                                          uint64_t count)> read_logs;
     std::function<void (uint64_t prev_index, size_t from,
@@ -86,11 +87,16 @@ typedef boost::bimap<address_type, cppa::actor_ptr> peer_map;
 struct working_state {
     uint64_t term;
     uint64_t committed;
+    uint64_t last_index;
+    // cache the term for the last log, so when voting, we don't have to
+    // read disks like we're crazy
+    uint64_t last_term;
     peer_map peers;
 };
 struct follower_state {
     working_state working;
-    address_type leader;
+    cppa::optional<address_type> leader;
+    cppa::optional<address_type> voted_for;
 };
 
 cppa::partial_function handle_connections(peer_map &peers);

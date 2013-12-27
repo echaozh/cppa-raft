@@ -1,8 +1,11 @@
 CXX := clang++
 CC := clang++
 CXXFLAGS +=	-I $(CPPA_PATH) -I. -std=c++11 -g -stdlib=libstdc++ \
-				-DCPPA_DISABLE_CONTEXT_SWITCHING -pthread
+				-DCPPA_DISABLE_CONTEXT_SWITCHING -pthread -MMD
 LDFLAGS += -L $(CPPA_PATH)/build/lib -lcppa -stdlib=libstdc++ -pthread
+
+-include *.d
+-include tests/*.d
 
 # SRCS := main raft state_machine
 # OBJS := $(addsuffix .o,$(SRCS))
