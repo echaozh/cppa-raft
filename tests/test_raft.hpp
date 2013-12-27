@@ -31,6 +31,10 @@ std::ostream& operator<<(std::ostream& s, const append_response& resp) {
     return s << "append_response{" << "term = " << resp.term
              << "; succeeds = " << resp.succeeds << "}";
 }
+std::ostream& operator<<(std::ostream& s, const vote_response& resp) {
+    return s << "vote_response{" << "term = " << resp.term
+             << "; vote_granted = " << resp.vote_granted << "}";
+}
 
 class RaftTest : public CppaTest {
 protected:

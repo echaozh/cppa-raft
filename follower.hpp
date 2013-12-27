@@ -71,19 +71,19 @@ static cppa::partial_function follower_vote(follower_state& state) {
             auto peer = check_peer(working.peers);
             if(!peer)
                 return;
-            bool succeeds = false;
+            bool granted = false;
             if(req.term >= working.term) {
                 if(req.term > working.term)
                     working.term = req.term;
-                if(state.voted_for && *state.voted_for == *peer
+                if((!state.voted_for || state.voted_for == peer)
                    && req.last_index >= working.last_index
                    && req.last_term >= working.last_term) {
-                    succeeds = true;
+                    granted = true;
                     state.voted_for = peer;
                     state.leader = {};
                 }
             }
-            send(self->last_sender(), vote_response {working.term, succeeds});
+            send(self->last_sender(), vote_response {working.term, granted});
         });
 }
 

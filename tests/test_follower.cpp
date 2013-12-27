@@ -62,8 +62,13 @@ protected:
                      begin(logs_) + prev_index + 1 + from);
             }
         };
-        backup_logs_ = logs_ = {{0}, {1}, {2}, {2}, {3}, {3}, {3}};
-        backup_state_ = state_ = {100};
+        logs_ = {{0}, {1}, {2}, {2}, {3}, {3}, {3}};
+        state_ = {{
+                100,                // term
+                0,                  // committed
+                6,                  // last_index
+                3,                  // last_term
+            }};
         states_ = spawn([=]() {
                 become(
                     on(atom("expect"), arg_match) >> [=](uint64_t to) {
@@ -93,6 +98,9 @@ protected:
                    optional<uint64_t> committed,
                    function<void ()> update_backup) {
         spawn([=]() {
+                backup_logs_ = logs_;
+                backup_state_ = state_;
+
                 self->monitor(raft_);
                 self->monitor(states_);
                 auto ta = spawn([=]() {
@@ -211,7 +219,6 @@ TEST_F(FollowerTest, VoteLesserTerm) {
 // vote when candidate is not who we voted for
 TEST_F(FollowerTest, VoteAfterAnother) {
     state_.voted_for = {make_pair("localhost", (uint16_t) 54321)};
-    backup_state_ = state_;
     TestActor(vote_request{1000}, // term
               vote_response{1000, false},
               false, {}, [=]() {backup_state_.working.term = 1000;});
@@ -219,8 +226,7 @@ TEST_F(FollowerTest, VoteAfterAnother) {
 
 // vote when candidate is not up to date
 TEST_F(FollowerTest, VoteForSnail) {
-    state_.voted_for = {make_pair("localhost", (uint16_t) 54321)};
-    backup_state_ = state_;
+    state_.voted_for = addr_;
     TestActor(vote_request{
             100,               // term
                 10,             // last_index
@@ -228,6 +234,34 @@ TEST_F(FollowerTest, VoteForSnail) {
                 },
         vote_response{100, false},
         false, {}, []() {});
+}
+
+// vote again for the same candidate
+TEST_F(FollowerTest, VoteAgain) {
+    state_.voted_for = addr_;
+    TestActor(vote_request{
+            1000,               // term
+                10,             // last_index
+                10,             // last_term
+                },
+        vote_response{1000, true},
+        false, {}, [=]() {backup_state_.working.term = 1000;});
+}
+
+// vote and forget about leader
+TEST_F(FollowerTest, VoteForgetLeader) {
+    state_.leader = addr_;
+    TestActor(vote_request{
+            1000,               // term
+                10,             // last_index
+                10,             // last_term
+                },
+        vote_response{1000, true},
+        false, {}, [=]() {
+            backup_state_.leader = {};
+            backup_state_.voted_for = addr_;
+            backup_state_.working.term = 1000;
+        });
 }
 
 // test follower reaction without address reporting first
