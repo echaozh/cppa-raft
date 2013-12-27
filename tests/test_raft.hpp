@@ -15,6 +15,7 @@
 #include "raft.hpp"
 
 #include "cppa_test.hpp"
+#include "prelude.hpp"
 
 static inline bool operator==(const working_state& lhs,
                               const working_state& rhs) {
@@ -33,7 +34,7 @@ std::ostream& operator<<(std::ostream& s, const append_response& resp) {
 }
 std::ostream& operator<<(std::ostream& s, const vote_response& resp) {
     return s << "vote_response{" << "term = " << resp.term
-             << "; vote_granted = " << resp.vote_granted << "}";
+             << "; granted = " << resp.granted << "}";
 }
 
 class RaftTest : public CppaTest {

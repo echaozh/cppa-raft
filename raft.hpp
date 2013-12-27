@@ -55,10 +55,10 @@ static inline bool operator==(vote_request lhs, vote_request rhs) {
 
 struct vote_response {
     uint64_t term;
-    bool vote_granted;
+    bool granted;
 };
 static inline bool operator==(vote_response lhs, vote_response rhs) {
-    return lhs.term == rhs.term && lhs.vote_granted == rhs.vote_granted;
+    return lhs.term == rhs.term && lhs.granted == rhs.granted;
 }
 
 template <typename LogEntry>
@@ -71,8 +71,7 @@ void announce_protocol() {
                               &append_response::succeeds);
     cppa::announce<vote_request>(&vote_request::term, &vote_request::last_index,
                                  &vote_request::last_term);
-    cppa::announce<vote_response>(&vote_response::term,
-                                  &vote_response::vote_granted);
+    cppa::announce<vote_response>(&vote_response::term, &vote_response::granted);
 }
 
 template <typename LogEntry>

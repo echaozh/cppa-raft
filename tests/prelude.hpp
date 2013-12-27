@@ -1,0 +1,18 @@
+/// /prelude.hpp -- functional prelude
+
+/// Copyright (c) 2013 Vobile. All rights reserved.
+/// Author: Zhang Yichao <zhang_yichao@vobile.cn>
+/// Created: 2013-12-27
+///
+
+#ifndef INCLUDED_CPPA_RAFT_PRELUDE_HPP
+#define INCLUDED_CPPA_RAFT_PRELUDE_HPP
+
+template<typename T>
+T concat(const T& a, const T& b) {
+    T c = a;
+    c.insert(end(c), begin(b), end(b));
+    return c;
+}
+
+#endif // INCLUDED_CPPA_RAFT_PRELUDE_HPP

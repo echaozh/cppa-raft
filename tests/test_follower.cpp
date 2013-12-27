@@ -93,13 +93,44 @@ protected:
                 f();
             });
     }
+    void TestActor(appreq&& req, append_response resp, bool be_leader = false,
+                   optional<uint64_t> new_term = {},
+                   optional<uint64_t> committed = {},
+                   optional<vector<test_log_entry> > logs = {}) {
+        TestActor(req, resp, new_term, committed, [=]() {
+                if(be_leader)
+                    backup_state_.leader = addr_;
+                if(logs) {
+                    backup_logs_ = *logs;
+                    backup_state_.working.last_index = logs->size() - 1;
+                    backup_state_.working.last_term = logs->back().term;
+                }
+            });
+    }
+    void TestActor(vote_request&& req, vote_response resp,
+                   optional<uint64_t> new_term = {},
+                   bool forget_leader = false) {
+        TestActor(req, resp, new_term, {}, [=]() {
+                if(resp.granted) {
+                    backup_state_.voted_for = addr_;
+                    backup_state_.leader = {};
+                }
+            });
+    }
     template <typename Request, typename Response>
-    void TestActor(Request &&req, Response resp, bool is_leader,
+    void TestActor(Request&& req, Response resp, optional<uint64_t> new_term,
                    optional<uint64_t> committed,
                    function<void ()> update_backup) {
         spawn([=]() {
                 backup_logs_ = logs_;
                 backup_state_ = state_;
+                if(new_term)
+                    backup_state_.working.term = *new_term;
+                if(committed) {
+                    backup_state_.working.committed = *committed;
+                    send(states_, atom("expect"), *committed);
+                } else
+                    send(states_, atom("EXIT"), exit_reason::user_shutdown);
 
                 self->monitor(raft_);
                 self->monitor(states_);
@@ -115,14 +146,6 @@ protected:
                             on_arg_match >> [=](Response real) {
                                 EXPECT_EQ(resp, real) << "Incorrect response";
                                 update_backup();
-                                if(is_leader)
-                                    backup_state_.leader = addr_;
-                                if(committed)
-                                    send(states_, atom("expect"), *committed);
-                                else {
-                                    send(states_, atom("EXIT"),
-                                         exit_reason::user_shutdown);
-                                }
                                 EXPECT_EQ(backup_logs_, logs_)
                                     << "Incorrect logs";
                                 EXPECT_EQ(backup_state_, state_)
@@ -146,7 +169,7 @@ protected:
 
 // append when leader has lesser term
 TEST_F(FollowerTest, AppendLesserTerm) {
-    TestActor(appreq{1}, append_response{100, false}, false, {}, []() {});
+    TestActor(appreq{1}, append_response{100, false});
 }
 
 // append when follower doesn't have matching previous log
@@ -158,62 +181,43 @@ TEST_F(FollowerTest, AppendNoPrevLog) {
                 1000,   // prev_term
                 },
         append_response{1000, false},
-        true, {},
-        [=]() {
-            send(states_, atom("EXIT"), exit_reason::user_shutdown);
-            backup_state_.working.term = 1000;
-        });
+        true, 1000);
 };
 
 // append when follower must discard logs
 TEST_F(FollowerTest, AppendDiscardLogs) {
+    vector<test_log_entry> entries = {{1}, {2}, {3}};
     TestActor(
         appreq{
             100,          // term
                 0,        // perv_index
                 0,        // prev term
                 2,        // committed
-                {{1}, {2}, {3}}, // entries
+                entries,
                 },
         append_response{100, true},
-        true, 2,
-        [=]() {
-            backup_logs_.resize(4);
-            backup_logs_[3] = {3};
-            backup_state_.working.committed = 2;
-            backup_state_.working.last_index = 3;
-            backup_state_.working.last_term = 3;
-        });
+        true, {}, 2, concat({{0}}, entries));
 }
 
 // append when leader is really fast with very late commits
 TEST_F(FollowerTest, AppendFastLeader) {
+    vector<test_log_entry> entries = {{4}, {5}, {6}};
     TestActor(
         appreq{
             1000,          // term
                 6,        // perv_index
                 3,        // prev term
                 100,        // committed
-                {{4}, {5}, {6}}, // entries
+                entries,
                 },
         append_response{1000, true},
-        true, 9,
-        [=]() {
-            backup_logs_.push_back({4});
-            backup_logs_.push_back({5});
-            backup_logs_.push_back({6});
-            backup_state_.working.term = 1000;
-            backup_state_.working.committed = 9; // last index is 9
-            backup_state_.working.last_index = 9;
-            backup_state_.working.last_term = 6;
-        });
+        true, 1000, 9, concat(logs_, entries));
 };
 
 // vote when candidate term is lesser
 TEST_F(FollowerTest, VoteLesserTerm) {
     TestActor(vote_request{10},            // term
-              vote_response{100, false},
-              false, {}, []() {});
+              vote_response{100, false});
 }
 
 // vote when candidate is not who we voted for
@@ -221,7 +225,7 @@ TEST_F(FollowerTest, VoteAfterAnother) {
     state_.voted_for = {make_pair("localhost", (uint16_t) 54321)};
     TestActor(vote_request{1000}, // term
               vote_response{1000, false},
-              false, {}, [=]() {backup_state_.working.term = 1000;});
+              1000);
 }
 
 // vote when candidate is not up to date
@@ -232,8 +236,7 @@ TEST_F(FollowerTest, VoteForSnail) {
                 10,             // last_index
                 1,              // last_term
                 },
-        vote_response{100, false},
-        false, {}, []() {});
+        vote_response{100, false});
 }
 
 // vote again for the same candidate
@@ -245,7 +248,7 @@ TEST_F(FollowerTest, VoteAgain) {
                 10,             // last_term
                 },
         vote_response{1000, true},
-        false, {}, [=]() {backup_state_.working.term = 1000;});
+        1000);
 }
 
 // vote and forget about leader
@@ -257,11 +260,7 @@ TEST_F(FollowerTest, VoteForgetLeader) {
                 10,             // last_term
                 },
         vote_response{1000, true},
-        false, {}, [=]() {
-            backup_state_.leader = {};
-            backup_state_.voted_for = addr_;
-            backup_state_.working.term = 1000;
-        });
+        1000);
 }
 
 // test follower reaction without address reporting first
