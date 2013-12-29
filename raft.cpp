@@ -17,7 +17,7 @@ partial_function handle_connections(peer_map& peers) {
             auto it = left.find(make_pair(host, port));
             if(it != left.end()) {
                 assert(it->second != peer);
-                // duplicate connection, close it
+                // duplicate connection, close what we initiate
                 send(peer, atom("EXIT"), exit_reason::user_shutdown);
             } else {              // register and monitor the peer
                 left.insert(peer_map::left_value_type(make_pair(host, port),

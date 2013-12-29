@@ -8,7 +8,9 @@
 #ifndef INCLUDED_CPPA_RAFT_RAFT_HPP
 #define INCLUDED_CPPA_RAFT_RAFT_HPP
 
+#include <chrono>
 #include <cstdint>
+#include <random>
 #include <string>
 #include <utility>
 #include <vector>
@@ -75,15 +77,19 @@ void announce_protocol() {
 }
 
 template <typename LogEntry>
-struct working_config {
+struct raft_config {
+    // behaviors
+    std::function<cppa::behavior ()> follower, candidate, leader;
     address_type address;
+    std::function<std::chrono::milliseconds ()> timeout;
     std::function<std::vector<LogEntry> (uint64_t first,
                                          uint64_t count)> read_logs;
     std::function<void (uint64_t prev_index, size_t from,
                         std::vector<LogEntry>)> write_logs;
 };
 typedef boost::bimap<address_type, cppa::actor_ptr> peer_map;
-struct working_state {
+struct raft_state {
+    // shared state
     uint64_t term;
     uint64_t committed;
     uint64_t last_index;
@@ -91,20 +97,20 @@ struct working_state {
     // read disks like we're crazy
     uint64_t last_term;
     peer_map peers;
-};
-struct follower_state {
-    working_state working;
+    // follower specific states
     cppa::optional<address_type> leader;
     cppa::optional<address_type> voted_for;
 };
 
-cppa::partial_function handle_connections(peer_map &peers);
+cppa::partial_function handle_connections(peer_map& peers);
 cppa::partial_function who_am_i(address_type addr);
 template <typename LogEntry>
-cppa::partial_function follower(cppa::actor_ptr states,
-                                const working_config<LogEntry> &config,
-                                follower_state &state);
+cppa::behavior follower(cppa::actor_ptr states,
+                        raft_config<LogEntry>& config, raft_state& state);
+template <typename LogEntry>
+cppa::behavior candidate(cppa::actor_ptr states,
+                         const raft_config<LogEntry>& config, raft_state& state);
 
-cppa::optional<address_type> check_peer(const peer_map &peers);
+cppa::optional<address_type> check_peer(const peer_map& peers);
 
 #endif // INCLUDED_CPPA_RAFT_RAFT_HPP

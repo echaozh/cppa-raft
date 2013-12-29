@@ -1,49 +1,37 @@
 #include <chrono>
 #include <vector>
 
-#include "follower.hpp"
-
 #include "test_raft.hpp"
 
 using namespace std;
 using namespace std::chrono;
 using namespace cppa;
 
-struct test_log_entry {
-    uint64_t term;
-};
-static inline bool operator==(test_log_entry lhs, test_log_entry rhs) {
-    return lhs.term == rhs.term;
-}
-
-bool operator==(const follower_state& lhs, const follower_state& rhs) {
-    return lhs.working == rhs.working
-        && (lhs.leader == rhs.leader || (!lhs.leader && !rhs.leader))
-        && (lhs.voted_for == rhs.voted_for || (!lhs.voted_for
-                                               && !rhs.voted_for));
-}
-ostream& operator<<(ostream& s, const follower_state& st) {
-    s << "follower_state{" << "leader = {";
-    if(st.leader)
-        s << st.leader->first << ", " << st.leader->second;
-    s << "}; voted_for = {";
-    if(st.voted_for)
-        s << st.voted_for->first << ", " << st.voted_for->second;
-    return s << "}; working = " << st.working << "}";
-}
-ostream& operator<<(ostream& s, const test_log_entry& log) {
-    return s << "log_entry{" << "term = " << log.term << "}";
-}
-
 class FollowerTest : public RaftTest {
 protected:
     typedef append_request<test_log_entry> appreq;
     virtual void SetUp() {
+        RaftTest::SetUp();
         announce<test_log_entry>(&test_log_entry::term);
         announce_protocol<test_log_entry>();
         config_ = {
+            // behaviors: follower, candidate, leader
+            [=]() -> behavior {return follower(states_, config_, state_);},
+            [=]() -> behavior {
+                return (
+                    on(atom("what")) >> []() {
+                        send(self->last_sender(), atom("candidate"));
+                    });
+            },
+            [=]() -> behavior {
+                return after(seconds(0)) >> []() {
+                    ADD_FAILURE() << "Unexpectedly becomes leader";
+                };
+            },
             // address
             make_pair("localhost", (uint16_t) 12345),
+            // timeout()
+            constant(milliseconds(1000)),
             // read_logs()
             [=](uint64_t first, uint64_t count) -> vector<test_log_entry> {
                 if(logs_.size() < first)
@@ -63,18 +51,16 @@ protected:
             }
         };
         logs_ = {{0}, {1}, {2}, {2}, {3}, {3}, {3}};
-        state_ = {{
+        state_ = {
                 100,                // term
                 0,                  // committed
                 6,                  // last_index
                 3,                  // last_term
-            }};
+            };
         states_ = spawn([=]() {
                 become(
                     on(atom("expect"), arg_match) >> [=](uint64_t to) {
-                        Become(
-                            [=]() {self->quit();},
-                            on(atom("apply_to"), to) >> [=]() {self->quit();});
+                        Become(Quit(), on(atom("apply_to"), to) >> Quit());
                     });
             });
         raft_ = spawn([=]() {become(follower(states_, config_, state_));});
@@ -102,8 +88,8 @@ protected:
                     backup_state_.leader = addr_;
                 if(logs) {
                     backup_logs_ = *logs;
-                    backup_state_.working.last_index = logs->size() - 1;
-                    backup_state_.working.last_term = logs->back().term;
+                    backup_state_.last_index = logs->size() - 1;
+                    backup_state_.last_term = logs->back().term;
                 }
             });
     }
@@ -125,9 +111,9 @@ protected:
                 backup_logs_ = logs_;
                 backup_state_ = state_;
                 if(new_term)
-                    backup_state_.working.term = *new_term;
+                    backup_state_.term = *new_term;
                 if(committed) {
-                    backup_state_.working.committed = *committed;
+                    backup_state_.committed = *committed;
                     send(states_, atom("expect"), *committed);
                 } else
                     send(states_, atom("EXIT"), exit_reason::user_shutdown);
@@ -141,7 +127,7 @@ protected:
                             [=]() {
                                 send(states_, atom("EXIT"),
                                      exit_reason::user_shutdown);
-                                Quit();
+                                Quit()();
                             },
                             on_arg_match >> [=](Response real) {
                                 EXPECT_EQ(resp, real) << "Incorrect response";
@@ -150,7 +136,7 @@ protected:
                                     << "Incorrect logs";
                                 EXPECT_EQ(backup_state_, state_)
                                     << "Incorrect state";
-                                Quit();
+                                Quit()();
                             });
                     });
                 self->monitor(ta);
@@ -161,8 +147,6 @@ protected:
                     });
             });
     }
-    working_config<test_log_entry> config_;
-    follower_state state_, backup_state_;
     vector<test_log_entry> logs_, backup_logs_;
     size_t deaths_ = 0;
 };
@@ -261,6 +245,16 @@ TEST_F(FollowerTest, VoteForgetLeader) {
                 },
         vote_response{1000, true},
         1000);
+}
+
+// becomes candidate after timeout
+TEST_F(FollowerTest, BecomesCandidate) {
+    spawn([=]() {
+            become(after(milliseconds(1100)) >> [=]() {
+                    send(raft_, atom("what"));
+                    Become(Quit(), on(atom("candidate")) >> Quit(true));
+                });
+        });
 }
 
 // test follower reaction without address reporting first
