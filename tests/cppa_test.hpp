@@ -1,7 +1,6 @@
 /// /cppa_test.hpp -- cppa based app test fixture base
 
-/// Copyright (c) 2013 Vobile. All rights reserved.
-/// Author: Zhang Yichao <zhang_yichao@vobile.cn>
+/// Author: Zhang Yichao <echaozh@gmail.com>
 /// Created: 2013-12-19
 ///
 
